@@ -1,0 +1,19 @@
+Color Representation
+
+Blue - Body/Metal/Paint
+Red - Windows
+Green - Under Body
+Orange - Plastic/Grill/Matte Color
+____________________
+Pink - Tire Hub
+Yellow - Tire/Rubber
+____________________
+Purple - Headlight
+Light Green - Rear Light
+____________________
+Sky Blue - Chrome/Mirrow
+Black - Police Light Body/Paint
+White - Police Red/Blue Light
+Gray - Bullbar
+Yellow Green - Spoiler Body/Paint
+Dark Red - Spoiler Matte/Legs
