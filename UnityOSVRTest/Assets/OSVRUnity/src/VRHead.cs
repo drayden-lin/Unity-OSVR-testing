@@ -17,10 +17,6 @@
 /// See the License for the specific language governing permissions and
 /// limitations under the License.
 /// </copyright>
-/// <summary>
-/// Author: Bob Berkebile
-/// Email: bob@bullyentertainment.com || bobb@pixelplacement.com
-/// </summary>
 
 using UnityEngine;
 using System.Collections;
@@ -29,274 +25,230 @@ namespace OSVR
 {
     namespace Unity
     {
-
-        public enum ViewMode { stereo, mono };
-
-        [RequireComponent(typeof(Camera))]
-        [RequireComponent(typeof(DisplayInterface))]
-        public class VRHead : MonoBehaviour
-        {
-            #region Public Variables
-            public ViewMode viewMode;
-
-            [Range(0, 1)]
-            public float stereoAmount;
-            public float maxStereo = .03f;
-            public Camera Camera { get { return _camera; } set { _camera = value; } }
+        [RequireComponent(typeof(Camera))]  
+        public class VRViewer : MonoBehaviour
+        {   
+            #region Public Variables         
+            public DisplayController DisplayController { get { return _displayController; } set { _displayController = value; } }
+            public VREye[] Eyes { get { return _eyes; } }
+            public uint EyeCount { get { return _eyeCount; } }
+            public uint ViewerIndex { get { return _viewerIndex; } set { _viewerIndex = value; } }
+            [HideInInspector]
+            public Transform cachedTransform;
+            public Camera Camera
+            {
+                get
+                {
+                    if (_camera == null)
+                    {
+                        _camera = GetComponent<Camera>();
+                    }
+                    return _camera;
+                }
+                set { _camera = value; }
+            }
             #endregion
 
             #region Private Variables
-            private VREye _leftEye;
-            private VREye _rightEye;
-            private float _previousStereoAmount;
-            private ViewMode _previousViewMode;
+            private DisplayController _displayController;
+            private VREye[] _eyes;
+            private uint _eyeCount;
+            private uint _viewerIndex;
             private Camera _camera;
-            private DeviceDescriptor _deviceDescriptor;
-            private OsvrDistortion _distortionEffect;
-            private bool _initDisplayInterface = false;
+            private bool _disabledCamera = true;
+            
+
             #endregion
 
-            #region Init
-            void Start()
+            void Awake()
             {
                 Init();
-                CatalogEyes();
-                _distortionEffect = GetComponent<OsvrDistortion>();
-                if (_distortionEffect != null)
-                {
-                    _distortionEffect.enabled = (viewMode == ViewMode.mono);
-                }
-
-                //update VRHead with info from the display interface if it has been initialized
-                //it might not be initialized if it is still loading/parsing a display json file
-                //in that case, we will try to initialize asap in the update function
-                if (GetComponent<DisplayInterface>().Initialized)
-                {
-                    UpdateDisplayInterface();                  
-                }              
-            }         
-            #endregion
-
-            #region Loop
-            void Update()
-            {
-                if(!_initDisplayInterface && GetComponent<DisplayInterface>().Initialized)
-                {
-                    UpdateDisplayInterface();
-                }
-                UpdateStereoAmount();
-                UpdateViewMode();
-            }
-            #endregion
-
-            #region Public Methods
-            #endregion
-
-            #region Private Methods
-            private void UpdateDisplayInterface()
-            {
-                GetDeviceDescription();
-                MatchEyes(); //copy camera properties to each eye
-                //rotate each eye based on overlap percent, must do this after match eyes
-                if (_deviceDescriptor != null)
-                {
-                    SetEyeRotation(_deviceDescriptor.OverlapPercent, _deviceDescriptor.MonocularHorizontal);
-                    SetEyeRoll(_deviceDescriptor.LeftRoll, _deviceDescriptor.RightRoll);
-                }
-                _initDisplayInterface = true;
-            }
-            void UpdateViewMode()
-            {
-                if (Time.realtimeSinceStartup < 100 || _previousViewMode != viewMode)
-                {
-                    switch (viewMode)
-                    {
-                        case ViewMode.mono:
-                            Camera.enabled = true;
-                            _leftEye.Camera.enabled = false;
-                            _rightEye.Camera.enabled = false;
-                            break;
-
-                        case ViewMode.stereo:
-                            Camera.enabled = false;
-                            _leftEye.Camera.enabled = true;
-                            _rightEye.Camera.enabled = true;
-                            
-                            break;
-                    }
-                }
-
-                _previousViewMode = viewMode;
-            }
-
-            void UpdateStereoAmount()
-            {
-                if (stereoAmount != _previousStereoAmount)
-                {
-                    stereoAmount = Mathf.Clamp(stereoAmount, 0, 1);
-                    _rightEye.cachedTransform.localPosition = Vector3.right * (maxStereo * stereoAmount);
-                    _leftEye.cachedTransform.localPosition = Vector3.left * (maxStereo * stereoAmount);
-                    _previousStereoAmount = stereoAmount;                  
-                }
-            }
-
-            //this function finds and initializes each eye
-            void CatalogEyes()
-            {
-                foreach (VREye currentEye in GetComponentsInChildren<VREye>())
-                {
-                    //catalog:
-                    switch (currentEye.eye)
-                    {
-                        case Eye.left:
-                            _leftEye = currentEye;
-                            break;
-
-                        case Eye.right:
-                            _rightEye = currentEye;
-                            break;
-                    }
-                }
-            }
-
-            //this function matches the camera on each eye to the camera on the head
-            void MatchEyes()
-            {
-                foreach (VREye currentEye in GetComponentsInChildren<VREye>())
-                {
-                    //match:
-                    currentEye.MatchCamera(Camera);
-                }
             }
 
             void Init()
             {
-                if (Camera == null)
+                _camera = GetComponent<Camera>();
+                //cache:
+                cachedTransform = transform;
+                if (DisplayController == null)
                 {
-                    if ((Camera = GetComponent<Camera>()) == null)
-                    {
-                        Camera = gameObject.AddComponent<Camera>();
-                    }               
-                }
-
-                //VR should never timeout the screen:
-                Screen.sleepTimeout = SleepTimeout.NeverSleep;
-
-                //60 FPS whenever possible:
-                Application.targetFrameRate = 60;
-
-                _initDisplayInterface = false;
-            }
-
-            /// <summary>
-            /// GetDeviceDescription: Get a Description of the HMD and apply appropriate settings
-            /// 
-            /// </summary>
-            private void GetDeviceDescription()
-            {
-                _deviceDescriptor = GetComponent<DisplayInterface>().GetDeviceDescription();              
-                if (_deviceDescriptor != null)
-                {
-                    Debug.Log(_deviceDescriptor.ToString());
-                    switch (_deviceDescriptor.DisplayMode)
-                    {
-                        case "full_screen":
-                            viewMode = ViewMode.mono;
-                            break;
-                        case "horz_side_by_side":
-                        case "vert_side_by_side":
-                        default:
-                            viewMode = ViewMode.stereo;
-                            break;
-                    }
-                    stereoAmount = Mathf.Clamp(_deviceDescriptor.OverlapPercent, 0, 100);
-                    SetResolution(_deviceDescriptor.Width, _deviceDescriptor.Height); //set resolution before FOV
-                    Camera.fieldOfView = Mathf.Clamp(_deviceDescriptor.MonocularVertical, 0, 180); //unity camera FOV is vertical
-                    SetDistortion(_deviceDescriptor.K1Red, _deviceDescriptor.K1Green, _deviceDescriptor.K1Blue, 
-                    _deviceDescriptor.CenterProjX, _deviceDescriptor.CenterProjY); //set distortion shader
-            
-                    //if the view needs to be rotated 180 degrees, create a parent game object that is flipped 180 degrees on the z axis.
-                    if (_deviceDescriptor.Rotate180 > 0)
-                    {
-                        GameObject vrHeadParent = new GameObject();
-                        vrHeadParent.name = this.transform.name + "_parent";
-                        vrHeadParent.transform.position = this.transform.position;
-                        vrHeadParent.transform.rotation = this.transform.rotation;
-                        if (this.transform.parent != null)
-                        {
-                            vrHeadParent.transform.parent = this.transform.parent;
-                        }
-                        this.transform.parent = vrHeadParent.transform;
-                        vrHeadParent.transform.Rotate(0, 0, 180, Space.Self);
-                    }
+                    DisplayController = FindObjectOfType<DisplayController>();
                 }
             }
 
-            private void SetDistortion(float k1Red, float k1Green, float k1Blue, float centerProjX, float centerProjY)
+            void OnEnable()
             {
-                if(_distortionEffect != null)
+                StartCoroutine("EndOfFrame");
+            }
+
+            void OnDisable()
+            {
+                StopCoroutine("EndOfFrame");
+                if (DisplayController.UseRenderManager && DisplayController.RenderManager != null)
                 {
-                    _distortionEffect.k1Red = k1Red;
-                    _distortionEffect.k1Green = k1Green;
-                    _distortionEffect.k1Blue = k1Blue;
-                    _distortionEffect.fullCenter = new Vector2(centerProjX, centerProjY);
+                    DisplayController.ExitRenderManager();
                 }
             }
 
-            //Set the Screen Resolution
-            private void SetResolution(int width, int height)
+            //Creates the Eyes of this Viewer
+            public void CreateEyes(uint eyeCount)
             {
-                //set the resolution
-                Screen.SetResolution(width, height, true);
-#if UNITY_EDITOR
-                UnityEditor.PlayerSettings.defaultScreenWidth = width;
-                UnityEditor.PlayerSettings.defaultScreenHeight = height;
-                UnityEditor.PlayerSettings.defaultIsFullScreen = true;
+                _eyeCount = eyeCount; //cache the number of eyes this viewer controls
+                _eyes = new VREye[_eyeCount];
+                for (uint eyeIndex = 0; eyeIndex < _eyeCount; eyeIndex++)
+                {
+                    GameObject eyeGameObject = new GameObject("Eye" + eyeIndex); //add an eye gameobject to the scene
+                    VREye eye = eyeGameObject.AddComponent<VREye>(); //add the VReye component
+                    eye.Viewer = this; //ASSUME THERE IS ONLY ONE VIEWER
+                    eye.EyeIndex = eyeIndex; //set the eye's index
+                    eyeGameObject.transform.parent = DisplayController.transform; //child of DisplayController
+                    eyeGameObject.transform.localPosition = Vector3.zero;
+                    _eyes[eyeIndex] = eye;
+                    uint eyeSurfaceCount = DisplayController.DisplayConfig.GetNumSurfacesForViewerEye(ViewerIndex, (byte)eyeIndex);
+                    eye.CreateSurfaces(eyeSurfaceCount);
+                }
+            }
+
+            //Get an updated tracker position + orientation
+            public OSVR.ClientKit.Pose3 GetViewerPose(uint viewerIndex)
+            {
+                return DisplayController.DisplayConfig.GetViewerPose(viewerIndex);
+            }
+
+            //Updates the position and rotation of the head
+            public void UpdateViewerHeadPose(OSVR.ClientKit.Pose3 headPose)
+            {
+                cachedTransform.localPosition = Math.ConvertPosition(headPose.translation);
+                cachedTransform.localRotation = Math.ConvertOrientation(headPose.rotation);
+            }
+
+            //Update the pose of each eye, then update and render each eye's surfaces
+            public void UpdateEyes()
+            {
+                if (DisplayController.UseRenderManager)
+                {
+                    //Update RenderInfo
+#if UNITY_5_2 || UNITY_5_3
+                    GL.IssuePluginEvent(DisplayController.RenderManager.GetRenderEventFunction(), OsvrRenderManager.UPDATE_RENDERINFO_EVENT);
+#else
+                    Debug.LogError("GL.IssuePluginEvent failed. This version of Unity cannot support RenderManager.");
+                    DisplayController.UseRenderManager = false;
 #endif
+                }
+                else
+                {
+                    DisplayController.UpdateClient();
+                }
+                    
+                for (uint eyeIndex = 0; eyeIndex < EyeCount; eyeIndex++)
+                {                   
+                    //update the eye pose
+                    VREye eye = Eyes[eyeIndex];
+                    //get eye pose from DisplayConfig
+                    //@todo fix bug with poses coming from RenderManager
+                    eye.UpdateEyePose(_displayController.DisplayConfig.GetViewerEyePose(ViewerIndex, (byte)eyeIndex));
+                    /*if (DisplayController.UseRenderManager)
+                    { 
+                        //get eye pose from RenderManager                     
+                        eye.UpdateEyePose(DisplayController.RenderManager.GetRenderManagerEyePose((byte)eyeIndex));
+                    }
+                    else
+                    {
+                        //get eye pose from DisplayConfig
+                        eye.UpdateEyePose(_displayController.DisplayConfig.GetViewerEyePose(ViewerIndex, (byte)eyeIndex));
+                    }*/
+                        
+
+                    // update the eye's surfaces, includes call to Render
+                    eye.UpdateSurfaces();                   
+                }
             }
-            
-            //rotate each eye based on overlap percent and horizontal FOV
-            //Formula: ((OverlapPercent/100) * hFOV)/2
-            private void SetEyeRotation(float overlapPercent, float horizontalFov)
+
+            //helper method for updating the client context
+            public void UpdateClient()
             {
-                float overlap = overlapPercent* .01f * horizontalFov * 0.5f;
+                DisplayController.UpdateClient();
+            }
+
+            // Culling determines which objects are visible to the camera. OnPreCull is called just before this process.
+            // This gets called because we have a camera component, but we disable the camera here so it doesn't render.
+            // We have the "dummy" camera so existing Unity game code can refer to a MainCamera object.
+            // We update our viewer and eye transforms here because it is as late as possible before rendering happens.
+            // OnPreRender is not called because we disable the camera here.
+            void OnPreCull()
+            {
                 
-                //with a 90 degree FOV with 100% overlap, the eyes should not be rotated
-                //compare rotationY with half of FOV
-
-                float halfFOV = horizontalFov * 0.5f;
-                float rotateYAmount = Mathf.Abs(overlap - halfFOV);
-
-                foreach (VREye currentEye in GetComponentsInChildren<VREye>())
+                if(!DisplayController.CheckDisplayStartup())
                 {
-                    switch (currentEye.eye)
-                    {
-                        case Eye.left:
-                            _leftEye.SetEyeRotationY(-rotateYAmount);
-                            break;
-                        case Eye.right:
-                            _rightEye.SetEyeRotationY(rotateYAmount);
-                            break;
-                    }
+                    //leave this preview camera enabled if there is no display config
+                    _camera.enabled = true;
                 }
+                else
+                {
+                    // To save Render time, disable this camera here and re-enable after the frame
+                    // OR, in DirectMode, leave it on for "mirror" mode, although this is an expensive operation
+                    // The long-term solution is to provide a DirectMode preview window in RenderManager
+                    //@todo enable directmode preview in RenderManager
+                    _camera.enabled = DisplayController.UseRenderManager && DisplayController.showDirectModePreview;
+                }
+
+                DoRendering();
+
+                // Flag that we disabled the camera
+                _disabledCamera = true;
             }
-            //rotate each eye on the z axis by the specified amount, in degrees
-            private void SetEyeRoll(float leftRoll, float rightRoll)
+
+            // The main rendering loop, should be called late in the pipeline, i.e. from OnPreCull
+            // Set our viewer and eye poses and render to each surface.
+            void DoRendering()
             {
-                foreach (VREye currentEye in GetComponentsInChildren<VREye>())
+                // update poses once DisplayConfig is ready
+                if (DisplayController.CheckDisplayStartup())
                 {
-                    switch (currentEye.eye)
+                    // update the viewer's head pose
+                    // @todo Get viewer pose from RenderManager if UseRenderManager = true
+                    // currently getting viewer pose from DisplayConfig always
+                    UpdateViewerHeadPose(GetViewerPose(ViewerIndex));
+
+                    // each viewer updates its eye poses, viewports, projection matrices
+                    UpdateEyes();
+
+                }
+                else
+                {
+                    if (!DisplayController.CheckDisplayStartup())
                     {
-                        case Eye.left:
-                            _leftEye.SetEyeRoll(leftRoll);
-                            break;
-                        case Eye.right:
-                            _rightEye.SetEyeRoll(rightRoll);
-                            break;
+                        //@todo do something other than not show anything
+                        Debug.LogError("Display Startup failed. Check HMD connection.");
                     }
                 }
             }
-            #endregion
+
+            // This couroutine is called every frame.
+            IEnumerator EndOfFrame()
+            {
+                while (true)
+                {
+                    //if we disabled the dummy camera, enable it here
+                    if (_disabledCamera)
+                    {
+                        Camera.enabled = true;
+                        _disabledCamera = false;
+                    }
+                    yield return new WaitForEndOfFrame();
+                    if (DisplayController.UseRenderManager && DisplayController.CheckDisplayStartup())
+                    {
+                        // Issue a RenderEvent, which copies Unity RenderTextures to RenderManager buffers
+#if UNITY_5_2 || UNITY_5_3
+                        GL.IssuePluginEvent(DisplayController.RenderManager.GetRenderEventFunction(), OsvrRenderManager.RENDER_EVENT);
+#else
+                        Debug.LogError("GL.IssuePluginEvent failed. This version of Unity cannot support RenderManager.");
+                        DisplayController.UseRenderManager = false;
+#endif
+                    }
+
+                }
+            }             
         }
     }
 }
