@@ -30,6 +30,7 @@ namespace OSVR
         ///
         /// Attach to a GameObject that you'd like to have updated in this way.
         /// </summary>
+        /// 
         public class OrientationInterface : InterfaceGameObjectBase
         {
             OrientationAdapter adapter;
